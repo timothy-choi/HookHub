@@ -24,6 +24,9 @@ public class Event {
     @Column(nullable = false)
     private EventStatus status;
 
+    @Column(nullable = false)
+    private Integer retryCount = 0;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -33,11 +36,12 @@ public class Event {
     public Event() {
     }
 
-    public Event(Long id, Long webhookId, String payload, EventStatus status, LocalDateTime createdAt, LocalDateTime updatedAt) {
+    public Event(Long id, Long webhookId, String payload, EventStatus status, Integer retryCount, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.webhookId = webhookId;
         this.payload = payload;
         this.status = status;
+        this.retryCount = retryCount != null ? retryCount : 0;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -46,6 +50,9 @@ public class Event {
     protected void onCreate() {
         if (status == null) {
             status = EventStatus.PENDING;
+        }
+        if (retryCount == null) {
+            retryCount = 0;
         }
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
@@ -87,6 +94,14 @@ public class Event {
 
     public void setStatus(EventStatus status) {
         this.status = status;
+    }
+
+    public Integer getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount != null ? retryCount : 0;
     }
 
     public LocalDateTime getCreatedAt() {

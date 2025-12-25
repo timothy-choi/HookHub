@@ -9,17 +9,19 @@ public class EventResponse {
     private Long webhookId;
     private String payload;
     private Event.EventStatus status;
+    private Integer retryCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     public EventResponse() {
     }
 
-    public EventResponse(Long id, Long webhookId, String payload, Event.EventStatus status, LocalDateTime createdAt, LocalDateTime updatedAt) {
+    public EventResponse(Long id, Long webhookId, String payload, Event.EventStatus status, Integer retryCount, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.webhookId = webhookId;
         this.payload = payload;
         this.status = status;
+        this.retryCount = retryCount;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -54,6 +56,14 @@ public class EventResponse {
 
     public void setStatus(Event.EventStatus status) {
         this.status = status;
+    }
+
+    public Integer getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount;
     }
 
     public LocalDateTime getCreatedAt() {

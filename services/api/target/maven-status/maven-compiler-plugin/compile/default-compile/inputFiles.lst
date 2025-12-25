@@ -4,9 +4,12 @@
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/config/AppConfig.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/dto/WebhookRegistrationResponse.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/controller/WebhookController.java
+/Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/worker/EventConsumer.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/dto/WebhookResponse.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/dto/EventResponse.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/HookHubApiApplication.java
+/Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/queue/EventQueue.java
+/Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/queue/InMemoryEventQueue.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/exception/GlobalExceptionHandler.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/repository/WebhookRepository.java
 /Users/timchoi/HookHub/services/api/src/main/java/com/hookhub/api/repository/EventRepository.java

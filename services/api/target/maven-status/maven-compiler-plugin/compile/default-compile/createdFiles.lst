@@ -1,6 +1,8 @@
 com/hookhub/api/controller/WebhookController.class
 com/hookhub/api/HookHubApiApplication.class
 com/hookhub/api/model/Webhook.class
+com/hookhub/api/queue/InMemoryEventQueue.class
+com/hookhub/api/queue/EventQueue.class
 com/hookhub/api/exception/GlobalExceptionHandler.class
 com/hookhub/api/dto/EventRequest.class
 com/hookhub/api/model/Event$EventStatus.class
@@ -13,6 +15,7 @@ com/hookhub/api/exception/GlobalExceptionHandler$ErrorResponse.class
 com/hookhub/api/dto/EventResponse.class
 com/hookhub/api/repository/WebhookRepository.class
 com/hookhub/api/config/AppConfig.class
+com/hookhub/api/worker/EventConsumer.class
 com/hookhub/api/service/WebhookService.class
 com/hookhub/api/dto/ValidationSuggestion.class
 com/hookhub/api/repository/EventRepository.class

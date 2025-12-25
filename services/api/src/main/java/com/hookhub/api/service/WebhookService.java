@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,7 @@ import com.hookhub.api.dto.WebhookRegistrationResponse;
 import com.hookhub.api.dto.WebhookResponse;
 import com.hookhub.api.model.Event;
 import com.hookhub.api.model.Webhook;
+import com.hookhub.api.queue.EventQueue;
 import com.hookhub.api.repository.EventRepository;
 import com.hookhub.api.repository.WebhookRepository;
 
@@ -26,15 +29,20 @@ import com.hookhub.api.repository.WebhookRepository;
 @Transactional
 public class WebhookService {
 
+    private static final Logger logger = LoggerFactory.getLogger(WebhookService.class);
+
     private final WebhookRepository webhookRepository;
     private final EventRepository eventRepository;
+    private final EventQueue eventQueue;
     private final ObjectMapper objectMapper;
 
     public WebhookService(WebhookRepository webhookRepository, 
                          EventRepository eventRepository,
+                         EventQueue eventQueue,
                          ObjectMapper objectMapper) {
         this.webhookRepository = webhookRepository;
         this.eventRepository = eventRepository;
+        this.eventQueue = eventQueue;
         this.objectMapper = objectMapper;
     }
 
@@ -100,12 +108,18 @@ public class WebhookService {
             }
         }
 
-        // Create and save event
+        // Create and save event to database first
         Event event = new Event();
         event.setWebhookId(request.getWebhookId());
         event.setPayload(payloadJson);
         event.setStatus(Event.EventStatus.PENDING);
+        event.setRetryCount(0);
         event = eventRepository.save(event);
+
+        // Enqueue the event for processing
+        eventQueue.enqueue(event);
+        
+        logger.info("Event created and enqueued: id={}, webhookId={}", event.getId(), event.getWebhookId());
 
         return convertToEventResponse(event);
     }
@@ -174,6 +188,7 @@ public class WebhookService {
                 event.getWebhookId(),
                 event.getPayload(),
                 event.getStatus(),
+                event.getRetryCount(),
                 event.getCreatedAt(),
                 event.getUpdatedAt()
         );
