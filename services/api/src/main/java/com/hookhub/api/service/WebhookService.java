@@ -1,20 +1,26 @@
 package com.hookhub.api.service;
 
-import com.hookhub.api.dto.*;
-import com.hookhub.api.model.Event;
-import com.hookhub.api.model.Webhook;
-import com.hookhub.api.repository.EventRepository;
-import com.hookhub.api.repository.WebhookRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hookhub.api.dto.EventRequest;
+import com.hookhub.api.dto.EventResponse;
+import com.hookhub.api.dto.ValidationSuggestion;
+import com.hookhub.api.dto.WebhookRegistrationRequest;
+import com.hookhub.api.dto.WebhookRegistrationResponse;
+import com.hookhub.api.dto.WebhookResponse;
+import com.hookhub.api.model.Event;
+import com.hookhub.api.model.Webhook;
+import com.hookhub.api.repository.EventRepository;
+import com.hookhub.api.repository.WebhookRepository;
 
 @Service
 @Transactional
@@ -64,6 +70,18 @@ public class WebhookService {
     public List<WebhookResponse> listWebhooks() {
         return webhookRepository.findAll().stream()
                 .map(this::convertToWebhookResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<EventResponse> listEvents() {
+        return eventRepository.findAll().stream()
+                .map(this::convertToEventResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<EventResponse> listEventsByWebhookId(Long webhookId) {
+        return eventRepository.findByWebhookId(webhookId).stream()
+                .map(this::convertToEventResponse)
                 .collect(Collectors.toList());
     }
 
