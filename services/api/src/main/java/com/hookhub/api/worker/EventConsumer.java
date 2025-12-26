@@ -1,10 +1,10 @@
 package com.hookhub.api.worker;
 
-import com.hookhub.api.model.Event;
-import com.hookhub.api.queue.EventQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
+
+import com.hookhub.api.model.Event;
+import com.hookhub.api.queue.EventQueue;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -12,13 +12,15 @@ import jakarta.annotation.PreDestroy;
 /**
  * EventConsumer continuously dequeues events from the queue and processes them.
  * 
- * This is a background worker that runs in a separate thread, polling the queue
- * for new events. Currently, it prints events to the console. In future phases,
- * this will be integrated with the delivery worker to actually send webhooks.
+ * NOTE: This component is now deprecated in favor of DeliveryWorker (Phase 3).
+ * DeliveryWorker handles actual webhook delivery with retry logic.
+ * 
+ * This consumer can be disabled by removing @Component annotation if DeliveryWorker
+ * is being used exclusively.
  * 
  * The consumer runs continuously until the application shuts down.
  */
-@Component
+// @Component  // Disabled - DeliveryWorker handles event processing in Phase 3
 public class EventConsumer {
     
     private static final Logger logger = LoggerFactory.getLogger(EventConsumer.class);
@@ -109,8 +111,13 @@ public class EventConsumer {
     
     /**
      * Processes a dequeued event.
-     * Currently prints the event details. In future phases, this will
-     * integrate with the delivery worker to send webhooks.
+     * 
+     * NOTE: This method is deprecated. EventConsumer is disabled in favor of DeliveryWorker
+     * (Phase 3), which handles actual webhook delivery with retry logic, status tracking,
+     * and database persistence.
+     * 
+     * This method is kept for reference but is no longer actively used since EventConsumer
+     * has its @Component annotation disabled.
      * 
      * @param event The event to process
      */
@@ -122,16 +129,24 @@ public class EventConsumer {
                 event.getRetryCount(),
                 event.getPayload());
         
-        // TODO: In Phase 3, integrate with delivery worker to actually send webhooks
-        // For now, we just log the event
+        // NOTE: Actual webhook delivery is now handled by DeliveryWorker (Phase 3).
+        // DeliveryWorker provides:
+        // - HTTP delivery via RestTemplate
+        // - Retry logic with exponential backoff
+        // - Status tracking (SUCCESS, RETRY_PENDING, FAILURE)
+        // - Database persistence of status updates
+        // - Multi-threaded concurrent processing
+        
+        // This console output is kept for debugging purposes only
         System.out.println("========================================");
-        System.out.println("Event Dequeued and Processed:");
+        System.out.println("Event Dequeued (EventConsumer - Deprecated):");
         System.out.println("  ID: " + event.getId());
         System.out.println("  Webhook ID: " + event.getWebhookId());
         System.out.println("  Status: " + event.getStatus());
         System.out.println("  Retry Count: " + event.getRetryCount());
         System.out.println("  Payload: " + event.getPayload());
         System.out.println("  Created At: " + event.getCreatedAt());
+        System.out.println("  NOTE: Use DeliveryWorker for actual webhook delivery");
         System.out.println("========================================");
     }
     

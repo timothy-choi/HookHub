@@ -1,9 +1,18 @@
 package com.hookhub.api.model;
 
-import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
-
 import java.time.LocalDateTime;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import jakarta.validation.constraints.NotNull;
 
 @Entity
 @Table(name = "events")
@@ -121,11 +130,12 @@ public class Event {
     }
 
     public enum EventStatus {
-        PENDING,
-        PROCESSING,
-        COMPLETED,
-        FAILED,
-        PAUSED
+        PENDING,           // Event is queued and waiting to be processed
+        PROCESSING,         // Event is currently being delivered
+        SUCCESS,            // Event was successfully delivered
+        RETRY_PENDING,      // Event failed but will be retried
+        FAILURE,            // Event failed after max retries
+        PAUSED              // Event is paused and can be resumed
     }
 }
 
