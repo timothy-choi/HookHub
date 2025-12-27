@@ -74,6 +74,27 @@ public class RetryPolicy {
     }
     
     /**
+     * Calculates the delay before the next retry attempt, respecting Retry-After header.
+     * If Retry-After is provided, uses that value (with a minimum of baseDelay).
+     * Otherwise, uses exponential backoff with jitter.
+     * 
+     * @param retryCount Current retry attempt number (0-based)
+     * @param retryAfterSeconds Retry-After header value in seconds (null if not present)
+     * @return Delay in milliseconds before next retry
+     */
+    public long calculateDelay(int retryCount, Integer retryAfterSeconds) {
+        // If Retry-After header is present, use it (but ensure minimum delay)
+        if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+            long retryAfterMs = retryAfterSeconds * 1000L;
+            // Use the larger of Retry-After or base delay (respect server but don't retry too fast)
+            return Math.max(retryAfterMs, baseDelayMs);
+        }
+        
+        // Otherwise, use standard exponential backoff
+        return calculateDelay(retryCount);
+    }
+    
+    /**
      * Checks if another retry should be attempted.
      * 
      * @param retryCount Current retry attempt number

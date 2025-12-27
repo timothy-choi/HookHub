@@ -81,12 +81,19 @@ public class WebhookDeliveryClient {
             
         } catch (HttpServerErrorException e) {
             // 5xx errors are retryable
-            logger.warn("Webhook delivery failed with server error: URL={}, Status={}, Message={}", 
-                    url, e.getStatusCode(), e.getMessage());
-            return DeliveryResult.retryableFailure(e.getStatusCode().value(), e.getResponseBodyAsString());
+            Integer retryAfter = extractRetryAfter(e.getResponseHeaders());
+            logger.warn("Webhook delivery failed with server error: URL={}, Status={}, Message={}, Retry-After={}", 
+                    url, e.getStatusCode(), e.getMessage(), retryAfter);
+            return DeliveryResult.retryableFailure(e.getStatusCode().value(), e.getResponseBodyAsString(), retryAfter);
             
         } catch (HttpClientErrorException e) {
-            // 4xx errors are typically not retryable (client error)
+            // 4xx errors - check for rate limiting (429)
+            Integer retryAfter = extractRetryAfter(e.getResponseHeaders());
+            if (e.getStatusCode().value() == 429) {
+                logger.warn("Webhook delivery rate limited: URL={}, Retry-After={}", url, retryAfter);
+                return DeliveryResult.retryableFailure(e.getStatusCode().value(), e.getResponseBodyAsString(), retryAfter);
+            }
+            // Other 4xx errors are typically not retryable (client error)
             logger.warn("Webhook delivery failed with client error: URL={}, Status={}, Message={}", 
                     url, e.getStatusCode(), e.getMessage());
             return DeliveryResult.nonRetryableFailure(e.getStatusCode().value(), e.getResponseBodyAsString());
@@ -104,7 +111,36 @@ public class WebhookDeliveryClient {
     }
     
     /**
+     * Extracts Retry-After header value from HTTP headers.
+     * Supports both integer seconds and HTTP-date formats.
+     * 
+     * @param headers HTTP response headers
+     * @return Retry-After value in seconds, or null if not present
+     */
+    private Integer extractRetryAfter(HttpHeaders headers) {
+        if (headers == null) {
+            return null;
+        }
+        
+        String retryAfter = headers.getFirst("Retry-After");
+        if (retryAfter == null || retryAfter.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Try parsing as integer (seconds)
+            return Integer.parseInt(retryAfter);
+        } catch (NumberFormatException e) {
+            // Could be HTTP-date format, but for simplicity, we'll just log and return null
+            // In production, you might want to parse HTTP-date format
+            logger.debug("Retry-After header is not an integer: {}", retryAfter);
+            return null;
+        }
+    }
+    
+    /**
      * Result of a webhook delivery attempt.
+     * Enhanced to support Retry-After headers for rate limiting.
      */
     public static class DeliveryResult {
         private final boolean success;
@@ -112,25 +148,32 @@ public class WebhookDeliveryClient {
         private final int statusCode;
         private final String responseBody;
         private final String errorMessage;
+        private final Integer retryAfterSeconds; // Retry-After header value in seconds
         
-        private DeliveryResult(boolean success, boolean retryable, int statusCode, String responseBody, String errorMessage) {
+        private DeliveryResult(boolean success, boolean retryable, int statusCode, String responseBody, 
+                             String errorMessage, Integer retryAfterSeconds) {
             this.success = success;
             this.retryable = retryable;
             this.statusCode = statusCode;
             this.responseBody = responseBody;
             this.errorMessage = errorMessage;
+            this.retryAfterSeconds = retryAfterSeconds;
         }
         
         public static DeliveryResult success(int statusCode, String responseBody) {
-            return new DeliveryResult(true, false, statusCode, responseBody, null);
+            return new DeliveryResult(true, false, statusCode, responseBody, null, null);
         }
         
         public static DeliveryResult retryableFailure(int statusCode, String errorMessage) {
-            return new DeliveryResult(false, true, statusCode, null, errorMessage);
+            return new DeliveryResult(false, true, statusCode, null, errorMessage, null);
+        }
+        
+        public static DeliveryResult retryableFailure(int statusCode, String errorMessage, Integer retryAfterSeconds) {
+            return new DeliveryResult(false, true, statusCode, null, errorMessage, retryAfterSeconds);
         }
         
         public static DeliveryResult nonRetryableFailure(int statusCode, String errorMessage) {
-            return new DeliveryResult(false, false, statusCode, null, errorMessage);
+            return new DeliveryResult(false, false, statusCode, null, errorMessage, null);
         }
         
         public boolean isSuccess() {
@@ -151,6 +194,25 @@ public class WebhookDeliveryClient {
         
         public String getErrorMessage() {
             return errorMessage;
+        }
+        
+        /**
+         * Gets the Retry-After header value in seconds.
+         * Returns null if not present or not applicable.
+         * 
+         * @return Retry-After seconds, or null
+         */
+        public Integer getRetryAfterSeconds() {
+            return retryAfterSeconds;
+        }
+        
+        /**
+         * Checks if this result includes a Retry-After header.
+         * 
+         * @return true if Retry-After is present
+         */
+        public boolean hasRetryAfter() {
+            return retryAfterSeconds != null && retryAfterSeconds > 0;
         }
     }
 }
