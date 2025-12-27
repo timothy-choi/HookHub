@@ -1,18 +1,21 @@
 package com.hookhub.api.error;
 
-import com.hookhub.api.worker.WebhookDeliveryClient;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import com.hookhub.api.worker.WebhookDeliveryClient;
 
 /**
  * ErrorClassifier analyzes delivery failures and determines the appropriate action.
  * 
- * This component implements intelligent error classification based on:
- * - HTTP status codes (4xx client errors, 5xx server errors)
- * - Network failures and timeouts
- * - DNS and connection issues
- * - Rate limiting (429) with Retry-After headers
+ * This component now delegates to the Python Decision Engine service for learning-based
+ * decisions. Falls back to rule-based classification if the decision engine is unavailable.
  * 
  * The classifier makes decisions to prevent retry storms, avoid hammering
  * broken endpoints, and provide actionable diagnostics.
@@ -22,119 +25,113 @@ public class ErrorClassifier {
     
     private static final Logger logger = LoggerFactory.getLogger(ErrorClassifier.class);
     
+    private final ErrorClassificationConfig config;
+    private final DecisionEngineClient decisionEngineClient;
+    
+    @Value("${decision.engine.fallback.enabled:true}")
+    private boolean fallbackToRules;
+    
+    public ErrorClassifier(ErrorClassificationConfig config, DecisionEngineClient decisionEngineClient) {
+        this.config = config;
+        this.decisionEngineClient = decisionEngineClient;
+    }
+    
     /**
      * Classifies a delivery result and returns the appropriate decision.
      * 
-     * Classification logic:
-     * - Success (2xx): Not applicable (should not call this method)
-     * - 429 (Rate Limited): RETRY (respect Retry-After header)
-     * - 5xx (Server Errors): RETRY (transient server issues)
-     * - 401/403 (Auth Errors): FAIL_PERMANENT (credentials issue)
-     * - 400/404 (Client Errors): FAIL_PERMANENT (bad request/endpoint)
-     * - Network/Timeout: RETRY (transient network issues)
-     * - DNS/Connection: RETRY (may be temporary)
+     * First tries the Python Decision Engine for learning-based decisions.
+     * Falls back to rule-based classification if decision engine is unavailable.
      * 
      * @param result The delivery result to classify
+     * @param retryCount Current retry count
+     * @param recentFailureRate Recent failure rate (0.0-1.0)
+     * @param webhookId Webhook ID
+     * @param totalFailures Total failures for webhook
+     * @param totalSuccesses Total successes for webhook
+     * @param consecutiveFailures Consecutive failures
+     * @param circuitBreakerState Circuit breaker state
      * @return ErrorDecision indicating what action to take
      */
-    public ErrorDecision classify(WebhookDeliveryClient.DeliveryResult result) {
+    public ErrorDecision classify(
+            WebhookDeliveryClient.DeliveryResult result,
+            int retryCount,
+            double recentFailureRate,
+            Long webhookId,
+            Long totalFailures,
+            Long totalSuccesses,
+            Integer consecutiveFailures,
+            String circuitBreakerState) {
+        
         if (result.isSuccess()) {
             logger.warn("ErrorClassifier called with successful result - this should not happen");
             return ErrorDecision.RETRY; // Fallback, shouldn't occur
         }
         
-        int statusCode = result.getStatusCode();
-        String errorMessage = result.getErrorMessage();
+        // Try Python decision engine first
+        DecisionEngineClient.DecisionEngineResponse engineResponse = 
+                decisionEngineClient.classifyError(
+                        result, retryCount, recentFailureRate, webhookId,
+                        totalFailures, totalSuccesses, consecutiveFailures, circuitBreakerState
+                );
         
-        // Rate limiting (429) - retry but respect Retry-After header
-        if (statusCode == 429) {
-            logger.info("Rate limiting detected (429) - will retry with respect to Retry-After header");
-            return ErrorDecision.RETRY;
+        if (engineResponse != null && engineResponse.getConfidenceScore() >= 0.6) {
+            // Use decision from Python engine
+            try {
+                ErrorDecision decision = ErrorDecision.valueOf(engineResponse.getDecision());
+                logger.info("Using decision from Python engine: {} (confidence: {})",
+                        decision, engineResponse.getConfidenceScore());
+                return decision;
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid decision from Python engine: {}, falling back to rules",
+                        engineResponse.getDecision());
+            }
         }
         
-        // 5xx Server Errors - retry (transient server issues)
-        if (statusCode >= 500 && statusCode < 600) {
-            logger.info("Server error (5xx) detected - will retry: statusCode={}", statusCode);
-            return ErrorDecision.RETRY;
+        // Fallback to rule-based classification
+        if (fallbackToRules) {
+            logger.debug("Falling back to rule-based classification");
+            return classifyWithRules(result);
         }
         
-        // 4xx Client Errors - classify based on specific status
-        if (statusCode >= 400 && statusCode < 500) {
-            return classifyClientError(statusCode);
-        }
-        
-        // Network/Connection errors (statusCode 0 or negative indicates network issue)
-        if (statusCode == 0 || statusCode < 0) {
-            logger.info("Network/connection error detected - will retry: errorMessage={}", errorMessage);
-            return ErrorDecision.RETRY;
-        }
-        
-        // Unknown status codes - retry by default (conservative approach)
-        logger.warn("Unknown status code: {} - defaulting to RETRY", statusCode);
+        // Last resort: default to RETRY
+        logger.warn("No decision available, defaulting to RETRY");
         return ErrorDecision.RETRY;
     }
     
     /**
-     * Classifies 4xx client errors into specific decisions.
+     * Rule-based classification (fallback implementation).
      * 
-     * @param statusCode HTTP status code (400-499)
-     * @return ErrorDecision for the client error
+     * @param result The delivery result to classify
+     * @return ErrorDecision indicating what action to take
      */
-    private ErrorDecision classifyClientError(int statusCode) {
-        switch (statusCode) {
-            case 400: // Bad Request
-                logger.info("Bad Request (400) - request format is invalid, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 401: // Unauthorized
-                logger.info("Unauthorized (401) - authentication credentials invalid, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 403: // Forbidden
-                logger.info("Forbidden (403) - access denied, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 404: // Not Found
-                logger.info("Not Found (404) - endpoint does not exist, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 408: // Request Timeout
-                logger.info("Request Timeout (408) - server timeout, will retry");
-                return ErrorDecision.RETRY;
-                
-            case 409: // Conflict
-                logger.info("Conflict (409) - resource conflict, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 410: // Gone
-                logger.info("Gone (410) - endpoint permanently removed, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 413: // Payload Too Large
-                logger.info("Payload Too Large (413) - request too large, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 414: // URI Too Long
-                logger.info("URI Too Long (414) - URL too long, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 422: // Unprocessable Entity
-                logger.info("Unprocessable Entity (422) - request format invalid, failing permanently");
-                return ErrorDecision.FAIL_PERMANENT;
-                
-            case 451: // Unavailable For Legal Reasons
-                logger.info("Unavailable For Legal Reasons (451) - legal restriction, pausing webhook");
-                return ErrorDecision.PAUSE_WEBHOOK;
-                
-            default:
-                // Other 4xx errors - fail permanently (conservative approach)
-                logger.info("Other client error (4xx): {} - failing permanently", statusCode);
-                return ErrorDecision.FAIL_PERMANENT;
+    private ErrorDecision classifyWithRules(WebhookDeliveryClient.DeliveryResult result) {
+        int statusCode = result.getStatusCode();
+        String errorMessage = result.getErrorMessage();
+        String errorType = determineErrorType(statusCode, errorMessage);
+        
+        // Get rules sorted by priority (highest first)
+        List<ErrorClassificationRule> rules = config.getRules().stream()
+                .filter(rule -> rule.getEnabled() != null && rule.getEnabled())
+                .sorted(Comparator.comparing(ErrorClassificationRule::getPriority).reversed())
+                .collect(Collectors.toList());
+        
+        // Find first matching rule
+        for (ErrorClassificationRule rule : rules) {
+            if (rule.matches(statusCode, errorMessage, errorType)) {
+                logger.info("Error classification matched rule: {} -> {}", rule.getName(), rule.getDecision());
+                return rule.getDecision();
+            }
         }
+        
+        // No rule matched - default to RETRY (conservative approach)
+        logger.warn("No classification rule matched for statusCode={}, errorMessage={}, defaulting to RETRY", 
+                statusCode, errorMessage);
+        return ErrorDecision.RETRY;
     }
     
     /**
      * Gets a human-readable explanation for an error decision.
+     * Uses the explanation template from the matching rule.
      * 
      * @param result The delivery result
      * @param decision The error decision
@@ -142,36 +139,56 @@ public class ErrorClassifier {
      */
     public String getExplanation(WebhookDeliveryClient.DeliveryResult result, ErrorDecision decision) {
         int statusCode = result.getStatusCode();
+        String errorMessage = result.getErrorMessage();
+        String errorType = determineErrorType(statusCode, errorMessage);
         
-        if (statusCode == 429) {
-            return "Your endpoint is rate-limiting requests. Retrying later with respect to Retry-After header.";
+        // Find matching rule to get explanation template
+        List<ErrorClassificationRule> rules = config.getRules().stream()
+                .filter(rule -> rule.getEnabled() != null && rule.getEnabled())
+                .filter(rule -> rule.getDecision() == decision)
+                .sorted(Comparator.comparing(ErrorClassificationRule::getPriority).reversed())
+                .collect(Collectors.toList());
+        
+        for (ErrorClassificationRule rule : rules) {
+            if (rule.matches(statusCode, errorMessage, errorType)) {
+                return rule.generateExplanation(statusCode, errorMessage);
+            }
         }
         
-        if (statusCode >= 500) {
-            return String.format("Your endpoint returned %d – server error. This is likely temporary, retrying.", statusCode);
-        }
-        
-        if (statusCode == 401) {
-            return "Your endpoint returned 401 – authentication credentials may be invalid.";
-        }
-        
-        if (statusCode == 403) {
-            return "Your endpoint returned 403 – access denied. Check permissions.";
-        }
-        
-        if (statusCode == 404) {
-            return "Your endpoint returned 404 – endpoint not found. Verify the webhook URL.";
-        }
-        
-        if (statusCode == 400) {
-            return "Your endpoint returned 400 – bad request. Check payload format.";
-        }
-        
-        if (statusCode == 0 || statusCode < 0) {
-            return "Network error – connection failed. Retrying.";
-        }
-        
+        // Fallback explanation if no rule matched
         return String.format("Delivery failed with status %d. Decision: %s", statusCode, decision);
+    }
+    
+    /**
+     * Determines error type from status code and error message.
+     * 
+     * @param statusCode HTTP status code
+     * @param errorMessage Error message
+     * @return Error type string
+     */
+    private String determineErrorType(int statusCode, String errorMessage) {
+        if (statusCode == 429) {
+            return "RATE_LIMIT";
+        }
+        if (statusCode >= 500) {
+            return "SERVER_ERROR";
+        }
+        if (statusCode == 401 || statusCode == 403) {
+            return "AUTH_ERROR";
+        }
+        if (statusCode >= 400 && statusCode < 500) {
+            return "CLIENT_ERROR";
+        }
+        if (statusCode == 0 || statusCode < 0) {
+            if (errorMessage != null && errorMessage.toLowerCase().contains("timeout")) {
+                return "TIMEOUT_ERROR";
+            }
+            if (errorMessage != null && errorMessage.toLowerCase().contains("dns")) {
+                return "DNS_ERROR";
+            }
+            return "NETWORK_ERROR";
+        }
+        return "UNKNOWN_ERROR";
     }
 }
 

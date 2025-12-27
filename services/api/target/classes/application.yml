@@ -1,0 +1,82 @@
+# Error Classification Rules Configuration
+# This file provides an alternative YAML-based configuration for error classification rules
+# Rules are evaluated in priority order (highest priority first)
+# If no rules are configured, default rules are used
+
+error:
+  classification:
+    rules:
+      # Rate limiting (429) - highest priority
+      - name: rate-limit
+        exactStatusCode: 429
+        decision: RETRY
+        explanationTemplate: "Your endpoint is rate-limiting requests. We'll retry after the rate limit window expires."
+        priority: 100
+        enabled: true
+      
+      # Server errors (5xx) - retry
+      - name: server-error
+        statusCodeMin: 500
+        statusCodeMax: 599
+        decision: RETRY
+        explanationTemplate: "Your endpoint returned {statusCode} – server error. This is likely temporary, and we'll retry automatically."
+        priority: 50
+        enabled: true
+      
+      # Authentication errors (401)
+      - name: unauthorized
+        exactStatusCode: 401
+        decision: FAIL_PERMANENT
+        explanationTemplate: "Your endpoint returned 401 – authentication credentials may be invalid. Please check your webhook authentication settings."
+        priority: 90
+        enabled: true
+      
+      # Forbidden (403)
+      - name: forbidden
+        exactStatusCode: 403
+        decision: FAIL_PERMANENT
+        explanationTemplate: "Your endpoint returned 403 – access denied. Please verify that your webhook endpoint accepts requests from our service."
+        priority: 90
+        enabled: true
+      
+      # Not found (404)
+      - name: not-found
+        exactStatusCode: 404
+        decision: FAIL_PERMANENT
+        explanationTemplate: "Your endpoint returned 404 – endpoint not found. Please verify that the webhook URL is correct and the endpoint exists."
+        priority: 90
+        enabled: true
+      
+      # Bad request (400)
+      - name: bad-request
+        exactStatusCode: 400
+        decision: FAIL_PERMANENT
+        explanationTemplate: "Your endpoint returned 400 – bad request. The request format may be incorrect. Please check your webhook endpoint's expected payload format."
+        priority: 90
+        enabled: true
+      
+      # Request timeout (408) - retry
+      - name: request-timeout
+        exactStatusCode: 408
+        decision: RETRY
+        explanationTemplate: "Request timeout – your endpoint did not respond in time. We'll retry automatically."
+        priority: 80
+        enabled: true
+      
+      # Network errors (statusCode 0 or negative)
+      - name: network-error
+        statusCodeMax: 0
+        decision: RETRY
+        explanationTemplate: "Network error – connection failed. This may be temporary, and we'll retry automatically."
+        priority: 70
+        enabled: true
+      
+      # Other 4xx client errors - fail permanent (lowest priority for 4xx)
+      - name: client-error
+        statusCodeMin: 400
+        statusCodeMax: 499
+        decision: FAIL_PERMANENT
+        explanationTemplate: "Your endpoint returned {statusCode} – client error. This error is not retryable. Please check your webhook configuration."
+        priority: 10
+        enabled: true
+

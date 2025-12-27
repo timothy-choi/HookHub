@@ -23,9 +23,30 @@ import com.hookhub.api.repository.ErrorClassificationRepository;
 public class DiagnosticsService {
     
     private final ErrorClassificationRepository errorClassificationRepository;
+    private final ErrorClassifier errorClassifier;
     
-    public DiagnosticsService(ErrorClassificationRepository errorClassificationRepository) {
+    public DiagnosticsService(ErrorClassificationRepository errorClassificationRepository,
+                             ErrorClassifier errorClassifier) {
         this.errorClassificationRepository = errorClassificationRepository;
+        this.errorClassifier = errorClassifier;
+    }
+    
+    /**
+     * Generates a human-readable explanation for a delivery failure.
+     * Uses ErrorClassifier to get explanation from matching rule.
+     * 
+     * @param statusCode HTTP status code
+     * @param errorMessage Error message
+     * @param decision Error decision
+     * @return Human-readable explanation
+     */
+    public String generateExplanation(int statusCode, String errorMessage, ErrorDecision decision) {
+        // Create a mock DeliveryResult to use with ErrorClassifier
+        // This is a workaround - in practice, you'd pass the actual result
+        com.hookhub.api.worker.WebhookDeliveryClient.DeliveryResult mockResult = 
+            com.hookhub.api.worker.WebhookDeliveryClient.DeliveryResult.retryableFailure(statusCode, errorMessage);
+        
+        return errorClassifier.getExplanation(mockResult, decision);
     }
     
     /**
@@ -36,7 +57,8 @@ public class DiagnosticsService {
      * @param decision Error decision
      * @return Human-readable explanation
      */
-    public String generateExplanation(int statusCode, String errorMessage, ErrorDecision decision) {
+    @Deprecated
+    public String generateExplanationLegacy(int statusCode, String errorMessage, ErrorDecision decision) {
         if (statusCode == 429) {
             return "Your endpoint is rate-limiting requests. We'll retry after the rate limit window expires.";
         }

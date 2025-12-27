@@ -238,8 +238,21 @@ public class DeliveryWorker {
                 markEventAsSuccess(event);
                 
             } else {
-                // Delivery failed - classify the error
-                ErrorDecision decision = errorClassifier.classify(result);
+                // Delivery failed - classify the error using decision engine
+                // Calculate recent failure rate (last 10 events)
+                double recentFailureRate = calculateRecentFailureRate(webhook.getId());
+                
+                ErrorDecision decision = errorClassifier.classify(
+                        result,
+                        event.getRetryCount(),
+                        recentFailureRate,
+                        webhook.getId(),
+                        webhook.getTotalFailures(),
+                        webhook.getTotalSuccesses(),
+                        webhook.getConsecutiveFailures(),
+                        webhook.getCircuitBreakerState() != null ? webhook.getCircuitBreakerState().name() : null
+                );
+                
                 String explanation = diagnosticsService.generateExplanation(
                         result.getStatusCode(), 
                         result.getErrorMessage(), 
@@ -530,6 +543,35 @@ public class DeliveryWorker {
      */
     public boolean isRunning() {
         return running;
+    }
+    
+    /**
+     * Calculates recent failure rate for a webhook.
+     * 
+     * @param webhookId Webhook ID
+     * @return Recent failure rate (0.0-1.0)
+     */
+    private double calculateRecentFailureRate(Long webhookId) {
+        try {
+            // Get recent events (last 10)
+            List<Event> recentEvents = eventRepository.findByWebhookIdOrderByCreatedAtDesc(webhookId)
+                    .stream()
+                    .limit(10)
+                    .toList();
+            
+            if (recentEvents.isEmpty()) {
+                return 0.0;
+            }
+            
+            long failures = recentEvents.stream()
+                    .filter(e -> e.getStatus() == Event.EventStatus.FAILURE)
+                    .count();
+            
+            return (double) failures / recentEvents.size();
+        } catch (Exception e) {
+            logger.warn("Error calculating recent failure rate for webhook {}: {}", webhookId, e.getMessage());
+            return 0.0;
+        }
     }
 }
 

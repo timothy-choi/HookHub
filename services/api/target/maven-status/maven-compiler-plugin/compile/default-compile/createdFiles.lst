@@ -2,6 +2,7 @@ com/hookhub/api/circuitbreaker/CircuitBreakerState.class
 com/hookhub/api/HookHubApiApplication.class
 com/hookhub/api/queue/InMemoryEventQueue.class
 com/hookhub/api/queue/EventQueue.class
+com/hookhub/api/error/ErrorClassificationRule.class
 com/hookhub/api/exception/GlobalExceptionHandler.class
 com/hookhub/api/dto/EventRequest.class
 com/hookhub/api/error/DiagnosticsService$1.class
@@ -33,3 +34,4 @@ com/hookhub/api/repository/WebhookRepository.class
 com/hookhub/api/config/AppConfig.class
 com/hookhub/api/service/WebhookService.class
 com/hookhub/api/error/ErrorDecision.class
+com/hookhub/api/error/ErrorClassificationConfig.class
